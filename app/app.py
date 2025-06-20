@@ -9,50 +9,49 @@ from flask import Flask, request, render_template_string, jsonify
 import re
 
 app = Flask(__name__)
-print(">>> app.py started")
+print("*** app.py started")
 
 # Environment variables
-CDVR_HOST = os.environ.get("CDVR_HOST", "192.168.1.152")
-CDVR_PORT = os.environ.get("CDVR_PORT", "8089")
-CDVR_CHNLNUM = os.environ.get("CDVR_CHNLNUM")
-RTP_HOST = os.environ.get("RTP_HOST", "127.0.0.1")  # Default for host mode
-RTP_PORT = os.environ.get("RTP_PORT", "4444")
-OUTPUT_FPS = os.environ.get("OUTPUT_FPS", "60")
-CHECK_INTERVAL = 60
+CDVR_HOST = os.getenv("CDVR_HOST", "192.168.1.152")
+CDVR_PORT = int(os.getenv("CDVR_PORT", "8089"))
+CDVR_CHNLNUM = os.getenv("CDVR_CHNLNUM", "280")
+RTP_HOST = os.getenv("RTP_HOST", "127.0.0.1")
+RTP_PORT = str(os.getenv("RTP_PORT", "4444"))
+OUTPUT_FPS = str(os.getenv("OUTPUT_FPS", "60"))
+CHECK_INTERVAL_SECONDS = 60
 STREAM_PROCESS = None
-CURRENT_VLC_PID = None
+CURRENT_VLC_PROCESS_ID = None
 KILL_COUNTDOWN_MINUTES = 6
-CHANNELS = []  # Store channel data from M3U
-FAVORITES = []  # Store favorite channels
-FAVORITES_FILE = "/app/favorites.json"  # File to persist favorites
+CHANNELS = []
+FAVORITES = []
+FAVORITES_FILE = "/app/favorites.json"
 
-# Load favorites from file
 def load_favorites():
+    """Load favorite channels from JSON file."""
     global FAVORITES
     try:
         if os.path.exists(FAVORITES_FILE):
             with open(FAVORITES_FILE, 'r') as f:
                 FAVORITES = json.load(f)
-            print(f">>> Loaded {len(FAVORITES)} favorites from {FAVORITES_FILE}")
+            print(f"*** Favorites loaded: {len(FAVORITES)} from {FAVORITES_FILE}")
         else:
-            print(f">>> No favorites file found at {FAVORITES_FILE}")
+            print(f"*** No favorites file at {FAVORITES_FILE}")
     except Exception as e:
-        print(f">>> Error loading favorites: {e}")
+        print(f"*** Error loading favorites: {e}")
 
-# Save favorites to file
 def save_favorites():
+    """Save favorite channels to JSON file."""
     try:
         with open(FAVORITES_FILE, 'w') as f:
-            json.dump(FAVORITES, f)
-        print(f">>> Saved {len(FAVORITES)} favorites to {FAVORITES_FILE}")
+            json.dump(FAVORITES, f, indent=2)
+        print(f"*** Favorites saved: {len(FAVORITES)} to {FAVORITES_FILE}")
     except Exception as e:
-        print(f">>> Error saving favorites: {e}")
+        print(f"*** Error saving favorites: {e}")
 
-# Load favorites on startup
 load_favorites()
 
-# Function to scrape M3U playlist
 def scrape_m3u():
+    """Scrape channel list from Channels DVR M3U."""
     global CHANNELS
     try:
         m3u_url = f"http://{CDVR_HOST}:{CDVR_PORT}/devices/ANY/channels.m3u"
@@ -81,14 +80,36 @@ def scrape_m3u():
                         })
                     current_channel = {}
             CHANNELS = channels
-            print(f">>> Loaded {len(CHANNELS)} channels from M3U")
+            print(f"*** Channels loaded: {len(CHANNELS)} from M3U")
         else:
-            print(f">>> Failed to fetch M3U: Status {response.status_code}")
+            print(f"*** Failed to fetch M3U: Status {response.status_code}")
     except Exception as e:
-        print(f">>> Error scraping M3U: {e}")
+        print(f"*** Error scraping M3U: {e}")
 
-# Load M3U on startup
 scrape_m3u()
+
+def detect_qsv():
+    """Detect if Intel QuickSync Video (QSV) is available."""
+    try:
+        if not os.path.exists("/dev/dri"):
+            print("*** No /dev/dri found, QSV unavailable")
+            return False
+        result = subprocess.run(["which", "vainfo"], capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            print("*** vainfo not found, QSV unavailable")
+            return False
+        result = subprocess.run(["vainfo"], capture_output=True, text=True, check=False)
+        if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
+            print("*** Intel QuickSync H.264 encoding detected")
+            return True
+        print("*** vainfo failed or no QSV H.264 support")
+        return False
+    except Exception as e:
+        print(f"*** Error detecting QSV: {e}")
+        return False
+
+VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "mp4v"
+print(f"*** Using video codec: {VIDEO_CODEC}")
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -98,7 +119,7 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {
-            font-family: sans-serif;
+            font-family: 'Arial', 'Helvetica', sans-serif;
             background: #111;
             color: white;
             margin: 0;
@@ -123,9 +144,12 @@ HTML_TEMPLATE = """
         .hamburger {
             font-size: 1.8em;
             cursor: pointer;
-            padding: 0.5em;
+            padding: 0.8em;
             position: absolute;
-            right: 0;
+            right: 0.5em;
+            text-overflow: clip;
+            white-space: nowrap;
+            z-index: 11;
         }
         #menu {
             position: fixed;
@@ -334,6 +358,10 @@ HTML_TEMPLATE = """
             .grid div {
                 width: 100%;
             }
+            .hamburger {
+                padding: 0.5em;
+                right: 0.2em;
+            }
         }
     </style>
 </head>
@@ -346,6 +374,7 @@ HTML_TEMPLATE = """
         <ul>
             <li onclick="reloadM3U()">Reload M3U from Channels</li>
             <li onclick="showChannels()">Available Channels</li>
+            <li onclick="closeStream()">Close Current Stream</li>
             <li onclick="goHome()">Home</li>
         </ul>
     </div>
@@ -373,7 +402,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
     <div id="notification">
-        <p>Stream started</p>
+        <p id="notification-text">Stream started</p>
         <button onclick="dismissNotification()">Dismiss</button>
     </div>
 
@@ -383,6 +412,7 @@ HTML_TEMPLATE = """
         const channelsPage = document.getElementById('channels-page');
         const mainContainer = document.querySelector('.container');
         const notification = document.getElementById('notification');
+        const notificationText = document.getElementById('notification-text');
         const streamForm = document.getElementById('stream-form');
 
         hamburger.addEventListener('click', () => {
@@ -423,6 +453,19 @@ HTML_TEMPLATE = """
                     channelsPage.style.display = 'block';
                     menu.classList.remove('open');
                     attachHeartListeners();
+                });
+        }
+
+        function closeStream() {
+            fetch('/stop', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    notificationText.textContent = data.message;
+                    notification.style.display = 'block';
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                    menu.classList.remove('open');
                 });
         }
 
@@ -484,12 +527,10 @@ HTML_TEMPLATE = """
             });
         }
 
-        // Load favorites on page load
         fetch('/channels')
             .then(response => response.json())
             .then(data => updateFavoritesList(data.favorites));
 
-        // Handle form submission for stream start
         streamForm.addEventListener('submit', e => {
             e.preventDefault();
             fetch('/start', {
@@ -498,10 +539,11 @@ HTML_TEMPLATE = """
             })
             .then(response => response.text())
             .then(() => {
+                notificationText.textContent = 'Stream started';
                 notification.style.display = 'block';
                 setTimeout(() => {
                     notification.style.display = 'none';
-                }, 5000); // Auto-dismiss after 5 seconds
+                }, 5000);
             });
         });
     </script>
@@ -515,7 +557,7 @@ def index():
 
 @app.route("/start", methods=["POST"])
 def start_stream():
-    global STREAM_PROCESS, CURRENT_VLC_PID
+    global STREAM_PROCESS, CURRENT_VLC_PROCESS_ID
 
     ch1 = request.form.get("ch1")
     ch2 = request.form.get("ch2")
@@ -523,28 +565,26 @@ def start_stream():
     ch4 = request.form.get("ch4")
     channels = [ch for ch in [ch1, ch2, ch3, ch4] if ch]
 
-    print(f">>> Starting stream with channels: {', '.join(channels)}")
+    print(f"*** Starting stream with channels: {', '.join(channels)}")
 
-    # Check and gracefully kill existing stream
-    if CURRENT_VLC_PID and STREAM_PROCESS:
+    if CURRENT_VLC_PROCESS_ID and STREAM_PROCESS:
         try:
-            print(f">>> Terminating existing VLC process PID {CURRENT_VLC_PID}")
-            os.kill(CURRENT_VLC_PID, signal.SIGTERM)  # Send SIGTERM for graceful shutdown
-            STREAM_PROCESS.wait(timeout=5)  # Wait up to 5 seconds for process to exit
-            print(f">>> Existing VLC process PID {CURRENT_VLC_PID} terminated")
+            print(f"*** Terminating VLC process PID {CURRENT_VLC_PROCESS_ID}")
+            os.kill(CURRENT_VLC_PROCESS_ID, signal.SIGTERM)
+            STREAM_PROCESS.wait(timeout=5)
+            print(f"*** VLC process PID {CURRENT_VLC_PROCESS_ID} terminated")
         except ProcessLookupError:
-            print(">>> Previous VLC process already terminated")
+            print("*** Previous VLC process already terminated")
         except subprocess.TimeoutExpired:
-            print(f">>> VLC process PID {CURRENT_VLC_PID} did not terminate gracefully, forcing kill")
-            os.kill(CURRENT_VLC_PID, signal.SIGKILL)  # Force kill if SIGTERM fails
-            STREAM_PROCESS.wait(timeout=2)  # Wait briefly after SIGKILL
+            print(f"*** VLC process PID {CURRENT_VLC_PROCESS_ID} did not terminate gracefully, forcing kill")
+            os.kill(CURRENT_VLC_PROCESS_ID, signal.SIGKILL)
+            STREAM_PROCESS.wait(timeout=2)
         except Exception as e:
-            print(f">>> Error terminating VLC process: {e}")
-        CURRENT_VLC_PID = None
+            print(f"*** Error terminating VLC process: {e}")
+        CURRENT_VLC_PROCESS_ID = None
         STREAM_PROCESS = None
-        time.sleep(1)  # Brief delay to ensure port is released
+        time.sleep(1)
 
-    # Generate new VLM configuration
     with open("/tmp/multi4.vlm", "w") as f:
         f.write("del all\n\n")
         for i, ch in enumerate(channels):
@@ -552,39 +592,62 @@ def start_stream():
             f.write(f"setup ch{i+1} input http://{CDVR_HOST}:{CDVR_PORT}/devices/ANY/channels/{ch}/stream.mpg\n")
             f.write(f"setup ch{i+1} option http-reconnect\n")
             f.write(f"setup ch{i+1} option network-caching=1000\n")
-            if i == 1:  # ch2 provides audio
-                f.write(f"setup ch{i+1} output #transcode{{acodec=mpga,ab=128,channels=2}}:duplicate{{dst=mosaic-bridge{{id=ch{i+1},width=960,height=540}},select=video,dst=bridge-out{{id=0,es=0}},select=audio}}\n\n")
+            if i == 1:
+                f.write(f"setup ch{i+1} output #duplicate{{dst=mosaic-bridge{{id=ch{i+1},width=960,height=540}},select=video,dst=bridge-out{{id=0}},select=audio}}\n\n")
             else:
-                f.write(f"setup ch{i+1} output #transcode{{acodec=none}}:mosaic-bridge{{id=ch{i+1},width=960,height=540}}\n\n")
+                f.write(f"setup ch{i+1} output #mosaic-bridge{{id=ch{i+1},width=960,height=540}}\n\n")
 
         f.write("new bg broadcast enabled\n")
-        f.write("setup bg input photos/bg.jpg\n")
+        f.write("setup bg input /app/photos/bg.jpg\n")
         f.write("setup bg option image-duration=-1\n")
-        f.write(f"setup bg option image-fps={OUTPUT_FPS}/1\n")
+        f.write("setup bg option image-fps=60/1\n")
         f.write(
-            f'setup bg output #transcode{{vcodec=h264,fps={OUTPUT_FPS},acodec=mpga,channels=2,sfilter=mosaic{{alpha=255,width=1920,height=1080,cols=2,rows=2,position=1,order="ch1,ch2,ch3,ch4",keep-aspect-ratio=enabled,mosaic-align=0,keep-picture=1}}}}:bridge-in{{offset=100}}:rtp{{dst={RTP_HOST},port={RTP_PORT},mux=ts,sap,name=Multi4}}\n\n'
+            f'setup bg output #transcode{{vcodec={VIDEO_CODEC},vb=0,fps={OUTPUT_FPS},acodec=none,channels=2,sfilter=mosaic{{alpha=255,width=1920,height=1080,cols=2,rows=2,position=1,order="ch1,ch2,ch3,ch4",keep-aspect-ratio=enabled,mosaic-align=0,keep-picture=1}}}}:bridge-in{{offset=100}}:rtp{{dst={RTP_HOST},port={RTP_PORT},mux=ts,sap,name=Multi4,ttl=10}}\n\n'
         )
         f.write("control bg play\n")
         for i in range(len(channels)):
             f.write(f"control ch{i+1} play\n")
 
-    # Start new VLC process
     try:
         STREAM_PROCESS = subprocess.Popen([
             "cvlc", "--vlm-conf", "/tmp/multi4.vlm",
             "--verbose", "1", "--file-logging", "--logfile", "/tmp/vlc.log",
             "--network-caching=1000", "--sout-mux-caching=1000"
         ])
-        CURRENT_VLC_PID = STREAM_PROCESS.pid
-        print(f">>> VLC started with PID {CURRENT_VLC_PID}")
+        CURRENT_VLC_PROCESS_ID = STREAM_PROCESS.pid
+        print(f"*** VLC started with PID {CURRENT_VLC_PROCESS_ID}")
     except Exception as e:
-        print(f">>> Error starting VLC process: {e}")
+        print(f"*** Error starting VLC process: {e}")
         return "Failed to start stream", 500
 
     if CDVR_CHNLNUM:
         threading.Thread(target=watch_for_quit, daemon=True).start()
 
     return "Stream started"
+
+@app.route("/stop", methods=["POST"])
+def stop_stream():
+    global STREAM_PROCESS, CURRENT_VLC_PROCESS_ID
+
+    if CURRENT_VLC_PROCESS_ID and STREAM_PROCESS:
+        try:
+            print(f"*** Stopping VLC process PID {CURRENT_VLC_PROCESS_ID}")
+            os.kill(CURRENT_VLC_PROCESS_ID, signal.SIGTERM)
+            STREAM_PROCESS.wait(timeout=5)
+            print(f"*** VLC process PID {CURRENT_VLC_PROCESS_ID} stopped")
+        except ProcessLookupError:
+            print("*** VLC process already stopped")
+        except subprocess.TimeoutExpired:
+            print(f"*** VLC process PID {CURRENT_VLC_PROCESS_ID} did not stop gracefully, forcing kill")
+            os.kill(CURRENT_VLC_PROCESS_ID, signal.SIGKILL)
+            STREAM_PROCESS.wait(timeout=2)
+        except Exception as e:
+            print(f"*** Error stopping VLC process: {e}")
+        CURRENT_VLC_PROCESS_ID = None
+        STREAM_PROCESS = None
+        return jsonify({"message": "Stream closed successfully"})
+    else:
+        return jsonify({"message": "No stream is running"})
 
 @app.route("/reload_m3u")
 def reload_m3u():
@@ -613,34 +676,35 @@ def save_favorites_endpoint():
     return jsonify({"message": "Favorites saved successfully"})
 
 def watch_for_quit():
-    global CURRENT_VLC_PID
+    global CURRENT_VLC_PROCESS_ID
     inactive_minutes = 0
-    print(f">>> Monitoring activity on channel {CDVR_CHNLNUM}")
+    print(f"*** Monitoring activity on channel {CDVR_CHNLNUM}")
 
     while True:
         try:
             r = requests.get(f"http://{CDVR_HOST}:{CDVR_PORT}/dvr", timeout=5)
             if r.status_code == 200:
                 if f"ch{CDVR_CHNLNUM}".lower() in r.text.lower():
-                    print(f">>> Channel {CDVR_CHNLNUM} still being watched")
+                    print(f"*** Channel {CDVR_CHNLNUM} still being watched")
                     inactive_minutes = 0
                 else:
                     inactive_minutes += 1
-                    print(f">>> Channel no longer being watched. Countdown to kill: {inactive_minutes} / {KILL_COUNTDOWN_MINUTES} min")
+                    print(f"*** Channel no longer being watched. Countdown to kill: {inactive_minutes} / {KILL_COUNTDOWN_MINUTES} min")
                     if inactive_minutes >= KILL_COUNTDOWN_MINUTES:
-                        if CURRENT_VLC_PID:
+                        if CURRENT_VLC_PROCESS_ID:
                             try:
-                                os.kill(CURRENT_VLC_PID, signal.SIGKILL)
-                                print(f">>> Killed VLC process PID {CURRENT_VLC_PID}")
+                                os.kill(CURRENT_VLC_PROCESS_ID, signal.SIGKILL)
+                                print(f"*** Killed VLC process PID {CURRENT_VLC_PROCESS_ID}")
                             except Exception as e:
-                                print(f">>> Error killing VLC: {e}")
-                            CURRENT_VLC_PID = None
+                                print(f"*** Error killing VLC: {e}")
+                            CURRENT_VLC_PROCESS_ID = None
                         return
         except Exception as e:
-            print(f">>> Error checking DVR activity: {e}")
+            print(f"*** Error checking DVR activity: {e}")
 
-        time.sleep(CHECK_INTERVAL)
+        time.sleep(CHECK_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
-    print(">>> starting Flask app")
-    app.run(host="0.0.0.0", port=9799)
+    print("*** Starting Flask app")
+    web_page_port = int(os.getenv("WEB_PAGE_PORT", "9799"))
+    app.run(host="0.0.0.0", port=web_page_port)

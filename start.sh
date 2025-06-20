@@ -1,4 +1,4 @@
 #!/bin/bash
-echo "Starting multi4channels..."
+source /opt/venv/bin/activate
 cd /app
 exec python3 app.py
