@@ -116,4 +116,4 @@ Acknowledgments
 •  Powered by Flask for the web UI.
 •  Designed for Channels DVR.
 
-
+Donations appreciated but not necessary. Buy me a coffee if you like at: [coff.ee/rice9797](https://buymeacoffee.com/rice9797)
