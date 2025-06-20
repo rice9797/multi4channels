@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multi4Channels</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+        }
+        #menu {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 36px;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        #menuOptions {
+            display: none;
+            position: absolute;
+            top: 60px;
+            right: 20px;
+            background-color: white;
+            border: 1px solid #ccc;
+            font-size: 24px;
+            z-index: 999;
+        }
+        #menuOptions button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            font-size: 24px;
+        }
+        h1 {
+            font-size: 40px;
+            margin-top: 80px;
+        }
+        input {
+            width: 120px;
+            font-size: 28px;
+            padding: 10px;
+            margin: 10px;
+        }
+        button {
+            font-size: 28px;
+            padding: 12px 20px;
+            margin: 10px;
+        }
+        #favorites {
+            margin-top: 30px;
+            font-size: 26px;
+        }
+        #channelForm {
+            position: fixed;
+            bottom: 40px;
+            width: 100%;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="menu" onclick="toggleMenu()">☰</div>
+    <div id="menuOptions">
+        <button onclick="reloadM3U()">Reload M3U from Channels</button>
+        <button onclick="loadChannels()">Available Channels</button>
+    </div>
+    <h1>Multi4Channels</h1>
+
+    <div id="favorites"></div>
+
+    <form id="channelForm">
+        <input name="ch1" placeholder="Ch1" step="0.01">
+        <input name="ch2" placeholder="Ch2" step="0.01"><br>
+        <input name="ch3" placeholder="Ch3" step="0.01">
+        <input name="ch4" placeholder="Ch4" step="0.01"><br>
+        <button type="submit">Start Stream</button>
+        <button type="button" style="background:red;color:white" onclick="endStream()">End Stream</button>
+    </form>
+
+    <script>
+        let favorites = new Set();
+
+        function toggleMenu() {
+            let menu = document.getElementById("menuOptions");
+            menu.style.display = menu.style.display === "block" ? "none" : "block";
+        }
+
+        function reloadM3U() {
+            fetch('/reload')
+              .then(r => r.json())
+              .then(data => alert(data.message || "Reloaded"))
+              .catch(() => alert("Reload failed"));
+        }
+
+        function loadChannels() {
+            fetch('/channels')
+              .then(r => r.json())
+              .then(data => {
+                  let out = "";
+                  data.forEach(ch => {
+                      let filled = favorites.has(ch.number);
+                      out += `<div>${ch.number} - ${ch.name} <span onclick="toggleFav('${ch.number}')" style="cursor:pointer;color:${filled?'red':'gray'}">♥</span></div>`;
+                  });
+                  document.getElementById("favorites").innerHTML = out;
+              });
+        }
+
+        function toggleFav(ch) {
+            if (favorites.has(ch)) favorites.delete(ch);
+            else favorites.add(ch);
+            loadChannels();
+        }
+
+        document.getElementById("channelForm").addEventListener("submit", function(e) {
+            e.preventDefault();
+            fetch("/start", {
+                method: "POST",
+                body: new FormData(this)
+            }).then(() => alert("Stream started"));
+        });
+
+        function endStream() {
+            fetch("/end", {method: "POST"}).then(() => alert("Stream ended"));
+        }
+    </script>
+</body>
+</html>
