@@ -57,8 +57,9 @@ docker run -d --name multi4channels --restart unless-stopped --network host \
   -e CDVR_PORT=8089 \
   -e CDVR_CHNLNUM=240 \
   -e OUTPUT_FPS=60 \
-  -e RTP_HOST=127.0.0.1 \
+  -e RTP_HOST=192.168.1.152 \
   -e RTP_PORT=4444 \
+  -e WEB_PAGE_PORT=9799\
   -v ~/multi4channels/app/favorites.json:/app/favorites.json \
   ghcr.io/rice9797/multi4channels:v1
 ```
@@ -72,6 +73,8 @@ CDVR_HOST= use the ip of your Channels dvr machine
 RTP_PORT= this is the stream output port and can be changed if 4444 is in use. 
 
 OUTPUT_FPS= 25,30,50,60 should all work for choosing your desired frames per second. 
+
+WEB_PAGE_PORT=9799 Change to desired port or if 9799 is in use. 
 
 Notes:
 •  --network host: Ensures the container can communicate with Channels DVR on 127.0.0.1:4444.
@@ -107,6 +110,13 @@ Limitations
 
 Future Improvements
 •  Support bridge mode.  I would love to figure out how to run this in bridge mode but the stream output breaks everytime I try.  Can you help?
+
+Latest Improvements
+v2 tag includes the following:
+- Added an End Current Stream option in the menu button.  Stream will still auto kill after channel is closed when using the enviornment variable but the kill button is there if you wabt to use it.
+- Significantly reduced CPU consumption with code tweaks.
+- Added logic to identify and use Intel QuickSync for hardware encoding if available. Currently un-tested and un-verified as working. 
+- Added WEB_PAGE_PORT= variable to be able to change port number for the web ui page. 
 
 License
 MIT
