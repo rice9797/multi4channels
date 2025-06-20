@@ -66,7 +66,7 @@ docker run -d --name multi4channels --restart unless-stopped --network host \
 
 Environment Variables:
 
-IMPORTANT:   -e CDVR_CHNLNUM=240 \ is used to monitor the channels dvr api to watch for activity in the channels you choose to watch multiview on. When you stop watching the channel a 6 minute countdown begins and if the channel is not tuned again within 6 minutes the transcoding stops. USE this as there is currently no other way to stop the stream. 
+IMPORTANT:   -e CDVR_CHNLNUM=240 \ is used to monitor the channels dvr api to watch for activity in the channels you choose to watch multiview on. When you stop watching the channel a 6 minute countdown begins and if the channel is not tuned again within 6 minutes the transcoding stops. USE this!!
 
 CDVR_HOST= use the ip of your Channels dvr machine 
 
