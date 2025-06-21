@@ -28,9 +28,14 @@ FAVORITES_DIR = "/app/data"
 FAVORITES_FILE = os.path.join(FAVORITES_DIR, "favorites.json")
 
 def load_favorites():
-    """Load favorite channels from JSON file."""
+    """Load favorite channels from JSON file, create if missing."""
     global FAVORITES
     try:
+        if not os.path.exists(FAVORITES_FILE):
+            with open(FAVORITES_FILE, 'w') as f:
+                json.dump([], f)
+            os.chmod(FAVORITES_FILE, 0o666)
+            print(f"*** Created {FAVORITES_FILE} with empty favorites")
         with open(FAVORITES_FILE, 'r') as f:
             FAVORITES = json.load(f)
         print(f"*** Favorites loaded: {len(FAVORITES)} from {FAVORITES_FILE}")
@@ -43,6 +48,7 @@ def save_favorites():
     try:
         with open(FAVORITES_FILE, 'w') as f:
             json.dump(FAVORITES, f, indent=2)
+        os.chmod(FAVORITES_FILE, 0o666)
         print(f"*** Favorites saved: {len(FAVORITES)} to {FAVORITES_FILE}")
     except Exception as e:
         print(f"*** Error saving favorites: {e}")
@@ -90,11 +96,10 @@ scrape_m3u()
 def detect_qsv():
     """Detect if Intel QuickSync Video (QSV) is available."""
     try:
-        # Log user groups for debugging
+        # Log user groups and permissions
         result = subprocess.run(["id"], capture_output=True, text=True, check=False)
         print(f"*** vlcuser groups: {result.stdout.strip()}")
 
-        # Check /dev/dri permissions
         if os.path.exists("/dev/dri"):
             result = subprocess.run(["ls", "-l", "/dev/dri"], capture_output=True, text=True, check=False)
             print(f"*** /dev/dri permissions: {result.stdout.strip()}")
@@ -108,17 +113,24 @@ def detect_qsv():
             print("*** vainfo not found, QSV unavailable")
             return False
 
-        # Run vainfo with LIBVA_DRIVER_NAME=iHD to bypass X server
+        # Try iHD driver
         env = os.environ.copy()
         env["LIBVA_DRIVER_NAME"] = "iHD"
         result = subprocess.run(["vainfo"], env=env, capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            print(f"*** vainfo failed with exit code {result.returncode}: {result.stderr}")
-            return False
-        if "VAEntrypointEncSlice" not in result.stdout or "H.264" not in result.stdout:
-            print("*** No H.264 encoding support in vainfo output")
+        if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
+            print("*** vainfo succeeded with iHD driver")
             print(f"*** vainfo output: {result.stdout}")
-            return False
+        else:
+            print(f"*** vainfo failed with iHD: {result.stderr}")
+            # Try i965 driver
+            env["LIBVA_DRIVER_NAME"] = "i965"
+            result = subprocess.run(["vainfo"], env=env, capture_output=True, text=True, check=False)
+            if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
+                print("*** vainfo succeeded with i965 driver")
+                print(f"*** vainfo output: {result.stdout}")
+            else:
+                print(f"*** vainfo failed with i965: {result.stderr}")
+                return False
 
         # Check VLC for h264_vaapi
         result = subprocess.run(["vlc", "-H"], capture_output=True, text=True, check=False)
@@ -127,7 +139,7 @@ def detect_qsv():
             return True
         else:
             print("*** VLC does not support h264_vaapi encoder")
-            print(f"*** VLC encoder list: {result.stdout.splitlines()[:10]}")  # Limit output
+            print(f"*** VLC encoder list: {result.stdout.splitlines()[:10]}")
             return False
     except Exception as e:
         print(f"*** Error detecting QSV: {e}")
@@ -637,7 +649,8 @@ def start_stream():
         STREAM_PROCESS = subprocess.Popen([
             "cvlc", "--vlm-conf", "/tmp/multi4.vlm",
             "--verbose", "1", "--file-logging", "--logfile", "/tmp/vlc.log",
-            "--network-caching=1000", "--sout-mux-caching=1000"
+            "--network-caching=1000", "--sout-mux-caching=1000",
+            "--avcodec-hw=vaapi"
         ])
         CURRENT_VLC_PROCESS_ID = STREAM_PROCESS.pid
         print(f"*** VLC started with PID {CURRENT_VLC_PROCESS_ID}")
