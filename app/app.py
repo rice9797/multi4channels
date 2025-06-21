@@ -12,10 +12,10 @@ app = Flask(__name__)
 print("*** app.py started")
 
 # Environment variables
-CDVR_HOST = os.getenv("CDVR_HOST", "192.168.1.152")
+CDVR_HOST = os.getenv("CDVR_HOST", "media-server8")
 CDVR_PORT = int(os.getenv("CDVR_PORT", "8089"))
-CDVR_CHNLNUM = os.getenv("CDVR_CHNLNUM", "280")
-RTP_HOST = os.getenv("RTP_HOST", "127.0.0.1")
+CDVR_CHNLNUM = os.getenv("CDVR_CHNLNUM", "24001")
+RTP_HOST = os.getenv("RTP_HOST", "media-server8")
 RTP_PORT = str(os.getenv("RTP_PORT", "4444"))
 OUTPUT_FPS = str(os.getenv("OUTPUT_FPS", "60"))
 CHECK_INTERVAL_SECONDS = 60
@@ -24,24 +24,38 @@ CURRENT_VLC_PROCESS_ID = None
 KILL_COUNTDOWN_MINUTES = 6
 CHANNELS = []
 FAVORITES = []
-FAVORITES_FILE = "/app/favorites.json"
+FAVORITES_DIR = "/app/data"
+FAVORITES_FILE = os.path.join(FAVORITES_DIR, "favorites.json")
+
+def ensure_favorites_file():
+    """Ensure favorites.json exists, create if missing."""
+    try:
+        if not os.path.exists(FAVORITES_DIR):
+            os.makedirs(FAVORITES_DIR)
+            print(f"*** Created directory {FAVORITES_DIR}")
+        if not os.path.exists(FAVORITES_FILE):
+            with open(FAVORITES_FILE, 'w') as f:
+                json.dump([], f, indent=2)
+            print(f"*** Created empty {FAVORITES_FILE}")
+    except Exception as e:
+        print(f"*** Error creating favorites file: {e}")
 
 def load_favorites():
     """Load favorite channels from JSON file."""
     global FAVORITES
     try:
-        if os.path.exists(FAVORITES_FILE):
-            with open(FAVORITES_FILE, 'r') as f:
-                FAVORITES = json.load(f)
-            print(f"*** Favorites loaded: {len(FAVORITES)} from {FAVORITES_FILE}")
-        else:
-            print(f"*** No favorites file at {FAVORITES_FILE}")
+        ensure_favorites_file()
+        with open(FAVORITES_FILE, 'r') as f:
+            FAVORITES = json.load(f)
+        print(f"*** Favorites loaded: {len(FAVORITES)} from {FAVORITES_FILE}")
     except Exception as e:
         print(f"*** Error loading favorites: {e}")
+        FAVORITES = []
 
 def save_favorites():
     """Save favorite channels to JSON file."""
     try:
+        ensure_favorites_file()
         with open(FAVORITES_FILE, 'w') as f:
             json.dump(FAVORITES, f, indent=2)
         print(f"*** Favorites saved: {len(FAVORITES)} to {FAVORITES_FILE}")
@@ -99,11 +113,22 @@ def detect_qsv():
             print("*** vainfo not found, QSV unavailable")
             return False
         result = subprocess.run(["vainfo"], capture_output=True, text=True, check=False)
-        if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
-            print("*** Intel QuickSync H.264 encoding detected")
+        if result.returncode != 0:
+            print(f"*** vainfo failed with exit code {result.returncode}: {result.stderr}")
+            return False
+        if "VAEntrypointEncSlice" not in result.stdout or "H.264" not in result.stdout:
+            print("*** No H.264 encoding support in vainfo output")
+            print(f"*** vainfo output: {result.stdout}")
+            return False
+        # Check VLC for h264_vaapi
+        result = subprocess.run(["vlc", "-H"], capture_output=True, text=True, check=False)
+        if "h264_vaapi" in result.stdout:
+            print("*** Intel QuickSync H.264 encoding (h264_vaapi) detected in VLC")
             return True
-        print("*** vainfo failed or no QSV H.264 support")
-        return False
+        else:
+            print("*** VLC does not support h264_vaapi encoder")
+            print(f"*** VLC encoder list: {result.stdout.splitlines()[:10]}")  # Limit output
+            return False
     except Exception as e:
         print(f"*** Error detecting QSV: {e}")
         return False
