@@ -156,7 +156,7 @@ def detect_qsv():
         print(f"*** Error detecting QSV: {e}")
         return False
 
-VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "x264"  # Fallback to x264 instead of mp4v
+VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "mp4v"  # Fallback to mp4v instead of x264
 print(f"*** Using video codec: {VIDEO_CODEC}")
 
 HTML_TEMPLATE = """

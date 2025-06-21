@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Log volume permissions
+echo "*** Checking /app/data permissions"
+ls -ld /app/data 2>/dev/null || echo "*** /app/data does not exist"
+
 # Check if /app/data is writable
 if [ ! -d /app/data ]; then
     mkdir -p /app/data
@@ -7,7 +11,9 @@ if [ ! -d /app/data ]; then
         echo "*** Error: Failed to create /app/data directory"
         exit 1
     fi
-    echo "*** Created /app/data directory"
+    chmod 777 /app/data
+    chown vlcuser:vlcuser /app/data
+    echo "*** Created /app/data directory with 777 permissions"
 fi
 
 # Test writability of /app/data
@@ -45,6 +51,11 @@ else
         echo "*** Set /app/data/favorites.json to 666 permissions and vlcuser ownership"
     fi
 fi
+
+# Log final permissions
+echo "*** Final /app/data permissions"
+ls -ld /app/data
+ls -l /app/data/favorites.json 2>/dev/null || echo "*** favorites.json does not exist"
 
 # Start the Python application
 source /opt/venv/bin/activate
