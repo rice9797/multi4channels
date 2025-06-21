@@ -107,14 +107,16 @@ def detect_qsv():
             print("*** No /dev/dri found, QSV unavailable")
             return False
 
-        # Check for vainfo
-        result = subprocess.run(["which", "vainfo"], capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            print("*** vainfo not found, QSV unavailable")
-            return False
+        # Log libva version
+        result = subprocess.run(["vainfo", "--version"], capture_output=True, text=True, check=False)
+        print(f"*** vainfo version: {result.stdout.strip() or result.stderr.strip()}")
+
+        # Set VAAPI environment variables
+        env = os.environ.copy()
+        env["LIBVA_DRIVERS_PATH"] = "/usr/lib/x86_64-linux-gnu/dri"
+        env["LIBVA_DRM_RENDER_DEVICE"] = "/dev/dri/renderD128"
 
         # Try iHD driver
-        env = os.environ.copy()
         env["LIBVA_DRIVER_NAME"] = "iHD"
         result = subprocess.run(["vainfo"], env=env, capture_output=True, text=True, check=False)
         if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
@@ -130,10 +132,19 @@ def detect_qsv():
                 print(f"*** vainfo output: {result.stdout}")
             else:
                 print(f"*** vainfo failed with i965: {result.stderr}")
-                return False
+                # Try default driver
+                del env["LIBVA_DRIVER_NAME"]
+                result = subprocess.run(["vainfo"], env=env, capture_output=True, text=True, check=False)
+                if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
+                    print("*** vainfo succeeded with default driver")
+                    print(f"*** vainfo output: {result.stdout}")
+                else:
+                    print(f"*** vainfo failed with default driver: {result.stderr}")
+                    return False
 
         # Check VLC for h264_vaapi
-        result = subprocess.run(["vlc", "-H"], capture_output=True, text=True, check=False)
+        env["LIBVA_DRIVER_NAME"] = "iHD"  # Use iHD for VLC if available
+        result = subprocess.run(["vlc", "-H"], env=env, capture_output=True, text=True, check=False)
         if "h264_vaapi" in result.stdout:
             print("*** Intel QuickSync H.264 encoding (h264_vaapi) detected in VLC")
             return True
@@ -145,7 +156,7 @@ def detect_qsv():
         print(f"*** Error detecting QSV: {e}")
         return False
 
-VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "mp4v"
+VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "x264"  # Fallback to x264 instead of mp4v
 print(f"*** Using video codec: {VIDEO_CODEC}")
 
 HTML_TEMPLATE = """
@@ -646,12 +657,16 @@ def start_stream():
             f.write(f"control ch{i+1} play\n")
 
     try:
+        env = os.environ.copy()
+        env["LIBVA_DRIVERS_PATH"] = "/usr/lib/x86_64-linux-gnu/dri"
+        env["LIBVA_DRM_RENDER_DEVICE"] = "/dev/dri/renderD128"
+        env["LIBVA_DRIVER_NAME"] = "iHD"
         STREAM_PROCESS = subprocess.Popen([
             "cvlc", "--vlm-conf", "/tmp/multi4.vlm",
             "--verbose", "1", "--file-logging", "--logfile", "/tmp/vlc.log",
             "--network-caching=1000", "--sout-mux-caching=1000",
             "--avcodec-hw=vaapi"
-        ])
+        ], env=env)
         CURRENT_VLC_PROCESS_ID = STREAM_PROCESS.pid
         print(f"*** VLC started with PID {CURRENT_VLC_PROCESS_ID}")
     except Exception as e:
