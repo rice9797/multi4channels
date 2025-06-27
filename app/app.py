@@ -12,10 +12,10 @@ app = Flask(__name__)
 print("*** app.py started")
 
 # Environment variables
-CDVR_HOST = os.getenv("CDVR_HOST", "media-server8")
+CDVR_HOST = os.getenv("CDVR_HOST", "192.168.1.152")
 CDVR_PORT = int(os.getenv("CDVR_PORT", "8089"))
-CDVR_CHNLNUM = os.getenv("CDVR_CHNLNUM", "24001")
-RTP_HOST = os.getenv("RTP_HOST", "media-server8")
+CDVR_CHNLNUM = os.getenv("CDVR_CHNLNUM", "280")
+RTP_HOST = os.getenv("RTP_HOST", "127.0.0.1")
 RTP_PORT = str(os.getenv("RTP_PORT", "4444"))
 OUTPUT_FPS = str(os.getenv("OUTPUT_FPS", "60"))
 CHECK_INTERVAL_SECONDS = 60
@@ -24,31 +24,26 @@ CURRENT_VLC_PROCESS_ID = None
 KILL_COUNTDOWN_MINUTES = 6
 CHANNELS = []
 FAVORITES = []
-FAVORITES_DIR = "/app/data"
-FAVORITES_FILE = os.path.join(FAVORITES_DIR, "favorites.json")
+FAVORITES_FILE = "/app/data/favorites.json"
 
 def load_favorites():
-    """Load favorite channels from JSON file, create if missing."""
+    """Load favorite channels from JSON file."""
     global FAVORITES
     try:
-        if not os.path.exists(FAVORITES_FILE):
-            with open(FAVORITES_FILE, 'w') as f:
-                json.dump([], f)
-            os.chmod(FAVORITES_FILE, 0o666)
-            print(f"*** Created {FAVORITES_FILE} with empty favorites")
-        with open(FAVORITES_FILE, 'r') as f:
-            FAVORITES = json.load(f)
-        print(f"*** Favorites loaded: {len(FAVORITES)} from {FAVORITES_FILE}")
+        if os.path.exists(FAVORITES_FILE):
+            with open(FAVORITES_FILE, 'r') as f:
+                FAVORITES = json.load(f)
+            print(f"*** Favorites loaded: {len(FAVORITES)} from {FAVORITES_FILE}")
+        else:
+            print(f"*** No favorites file at {FAVORITES_FILE}")
     except Exception as e:
         print(f"*** Error loading favorites: {e}")
-        FAVORITES = []
 
 def save_favorites():
     """Save favorite channels to JSON file."""
     try:
         with open(FAVORITES_FILE, 'w') as f:
             json.dump(FAVORITES, f, indent=2)
-        os.chmod(FAVORITES_FILE, 0o666)
         print(f"*** Favorites saved: {len(FAVORITES)} to {FAVORITES_FILE}")
     except Exception as e:
         print(f"*** Error saving favorites: {e}")
@@ -96,67 +91,24 @@ scrape_m3u()
 def detect_qsv():
     """Detect if Intel QuickSync Video (QSV) is available."""
     try:
-        # Log user groups and permissions
-        result = subprocess.run(["id"], capture_output=True, text=True, check=False)
-        print(f"*** vlcuser groups: {result.stdout.strip()}")
-
-        if os.path.exists("/dev/dri"):
-            result = subprocess.run(["ls", "-l", "/dev/dri"], capture_output=True, text=True, check=False)
-            print(f"*** /dev/dri permissions: {result.stdout.strip()}")
-        else:
+        if not os.path.exists("/dev/dri"):
             print("*** No /dev/dri found, QSV unavailable")
             return False
-
-        # Log libva version
-        result = subprocess.run(["vainfo", "--version"], capture_output=True, text=True, check=False)
-        print(f"*** vainfo version: {result.stdout.strip() or result.stderr.strip()}")
-
-        # Set VAAPI environment variables
-        env = os.environ.copy()
-        env["LIBVA_DRIVERS_PATH"] = "/usr/lib/x86_64-linux-gnu/dri"
-        env["LIBVA_DRM_RENDER_DEVICE"] = "/dev/dri/renderD128"
-
-        # Try iHD driver
-        env["LIBVA_DRIVER_NAME"] = "iHD"
-        result = subprocess.run(["vainfo"], env=env, capture_output=True, text=True, check=False)
-        if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
-            print("*** vainfo succeeded with iHD driver")
-            print(f"*** vainfo output: {result.stdout}")
-        else:
-            print(f"*** vainfo failed with iHD: {result.stderr}")
-            # Try i965 driver
-            env["LIBVA_DRIVER_NAME"] = "i965"
-            result = subprocess.run(["vainfo"], env=env, capture_output=True, text=True, check=False)
-            if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
-                print("*** vainfo succeeded with i965 driver")
-                print(f"*** vainfo output: {result.stdout}")
-            else:
-                print(f"*** vainfo failed with i965: {result.stderr}")
-                # Try default driver
-                del env["LIBVA_DRIVER_NAME"]
-                result = subprocess.run(["vainfo"], env=env, capture_output=True, text=True, check=False)
-                if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
-                    print("*** vainfo succeeded with default driver")
-                    print(f"*** vainfo output: {result.stdout}")
-                else:
-                    print(f"*** vainfo failed with default driver: {result.stderr}")
-                    return False
-
-        # Check VLC for h264_vaapi
-        env["LIBVA_DRIVER_NAME"] = "iHD"  # Use iHD for VLC if available
-        result = subprocess.run(["vlc", "-H"], env=env, capture_output=True, text=True, check=False)
-        if "h264_vaapi" in result.stdout:
-            print("*** Intel QuickSync H.264 encoding (h264_vaapi) detected in VLC")
-            return True
-        else:
-            print("*** VLC does not support h264_vaapi encoder")
-            print(f"*** VLC encoder list: {result.stdout.splitlines()[:10]}")
+        result = subprocess.run(["which", "vainfo"], capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            print("*** vainfo not found, QSV unavailable")
             return False
+        result = subprocess.run(["vainfo"], capture_output=True, text=True, check=False)
+        if result.returncode == 0 and "VAEntrypointEncSlice" in result.stdout and "H.264" in result.stdout:
+            print("*** Intel QuickSync H.264 encoding detected")
+            return True
+        print("*** vainfo failed or no QSV H.264 support")
+        return False
     except Exception as e:
         print(f"*** Error detecting QSV: {e}")
         return False
 
-VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "mp4v"  # Fallback to mp4v instead of x264
+VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "mp4v"
 print(f"*** Using video codec: {VIDEO_CODEC}")
 
 HTML_TEMPLATE = """
@@ -657,16 +609,11 @@ def start_stream():
             f.write(f"control ch{i+1} play\n")
 
     try:
-        env = os.environ.copy()
-        env["LIBVA_DRIVERS_PATH"] = "/usr/lib/x86_64-linux-gnu/dri"
-        env["LIBVA_DRM_RENDER_DEVICE"] = "/dev/dri/renderD128"
-        env["LIBVA_DRIVER_NAME"] = "iHD"
         STREAM_PROCESS = subprocess.Popen([
             "cvlc", "--vlm-conf", "/tmp/multi4.vlm",
             "--verbose", "1", "--file-logging", "--logfile", "/tmp/vlc.log",
-            "--network-caching=1000", "--sout-mux-caching=1000",
-            "--avcodec-hw=vaapi"
-        ], env=env)
+            "--network-caching=1000", "--sout-mux-caching=1000"
+        ])
         CURRENT_VLC_PROCESS_ID = STREAM_PROCESS.pid
         print(f"*** VLC started with PID {CURRENT_VLC_PROCESS_ID}")
     except Exception as e:
@@ -761,3 +708,4 @@ if __name__ == "__main__":
     print("*** Starting Flask app")
     web_page_port = int(os.getenv("WEB_PAGE_PORT", "9799"))
     app.run(host="0.0.0.0", port=web_page_port)
+    
