@@ -25,7 +25,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir flask requests
 
 COPY app /app
-COPY photos/bg.jpg /app/photos/bg.jpg
+#COPY photos/bg.jpg /app/photos/bg.jpg
 COPY start.sh /start.sh
 
 RUN chmod +x /start.sh && \

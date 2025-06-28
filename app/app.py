@@ -24,7 +24,7 @@ CURRENT_VLC_PROCESS_ID = None
 KILL_COUNTDOWN_MINUTES = 6
 CHANNELS = []
 FAVORITES = []
-FAVORITES_FILE = "/app/favorites.json"
+FAVORITES_FILE = "/app/data/favorites.json"
 
 def load_favorites():
     """Load favorite channels from JSON file."""

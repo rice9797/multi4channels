@@ -3,7 +3,7 @@
 Multi4Channels is a Python-based application that creates a 2x2 mosaic video stream from up to four Channels DVR channels, streamed via RTP to Channels DVR for viewing as a single channel (e.g., `ch199`). The web interface allows users to select channels, manage favorites, and start/stop the stream. The project runs in a Docker container using host networking for seamless integration with Channels DVR on the same machine.
 
 ## Features
-- **Mosaic Streaming**: Combines up to four Channels DVR streams into a 2x2 grid, output as a single H.264 video stream.
+- **Mosaic Streaming**: Combines up to four Channels DVR streams into a 2x2 grid, output as a single MP4V video stream.
 - **Web UI**: Responsive interface for selecting channels, starting streams, and managing favorites, accessible on mobile or desktop.
 - **Favorites**: Save and quickly select favorite channels from the Channels DVR M3U playlist.
 - **Graceful Stream Switching**: Cleanly terminates existing streams before starting new ones to avoid conflicts.
@@ -29,23 +29,36 @@ Multi4Channels is a Python-based application that creates a 2x2 mosaic video str
  ```bash
 #EXTM3U
 #EXTINF:0, channel-id="M4C" tvg-id="240" tvg-chno="240" tvc-guide-placeholders="7200" tvc-guide-title="Start a Stream At docker.machine.ip:9799..” tvc-guide-description="Visit Multi4Channels Web Page to Start a Stream (docker.machine.ip:9799).” tvc-guide-art="https://i.postimg.cc/xCy2v22X/IMG-3254.png"  tvg-logo="https://i.postimg.cc/xCy2v22X/IMG-3254.png" tvc-guide-stationid="" tvg-name="Multi4Channels" group-title="HD", M4C 
-udp://127.0.0.1:4444
+udp://use.ip.of.dvr.machine.example192.168.1.151:4444
  ```
 Enter a starting channel number and select ignore channel number from m3u if you didn’t change in the text above. Leave the xmltv guide block blank and click save. 
 
 3. Create a Volume for Favorites 
 To persist favorite channels:
 
+For Linux and Mac users:
 ```bash
 mkdir -p ~/multi4channels/app
 touch ~/multi4channels/app/favorites.json
 chmod 666 ~/multi4channels/app/favorites.json
 ```
 
+For Windows users(Option 1) create the required directory in PowerShell with:
+```bash
+# Create directory (e.g., C:\Users\<username>\multi4channels\app)
+New-Item -Path "$env:USERPROFILE\multi4channels\app" -ItemType Directory -Force
+# Create empty favorites.json file
+New-Item -Path "$env:USERPROFILE\multi4channels\app\favorites.json" -ItemType File -Force
+# Set permissions to allow read/write for everyone
+icacls "$env:USERPROFILE\multi4channels\app\favorites.json" /grant Everyone:RW
+```
+Windows users(Option 2) running Docker Desktop can use Git Bash (included with Git for Windows). With Git Bash use the Linux command from above.
+
+
 Pull the Docker Image
 
 ```bash
-docker pull ghcr.io/rice9797/multi4channels:v1
+docker pull ghcr.io/rice9797/multi4channels:v2
 ```
 
 4. Run the Container
@@ -57,21 +70,24 @@ docker run -d --name multi4channels --restart unless-stopped --network host \
   -e CDVR_PORT=8089 \
   -e CDVR_CHNLNUM=240 \
   -e OUTPUT_FPS=60 \
-  -e RTP_HOST=127.0.0.1 \
+  -e RTP_HOST=192.168.1.152 \
   -e RTP_PORT=4444 \
+  -e WEB_PAGE_PORT=9799\
   -v ~/multi4channels/app/favorites.json:/app/favorites.json \
-  ghcr.io/rice9797/multi4channels:v1
+  ghcr.io/rice9797/multi4channels:v2
 ```
 
 Environment Variables:
 
-IMPORTANT:   -e CDVR_CHNLNUM=240 \ is used to monitor the channels dvr api to watch for activity in the channels you choose to watch multiview on. When you stop watching the channel a 6 minute countdown begins and if the channel is not tuned again within 6 minutes the transcoding stops. USE this as there is currently no other way to stop the stream. 
+IMPORTANT:   -e CDVR_CHNLNUM=240 \ is used to monitor the channels dvr api to watch for activity in the channels you choose to watch multiview on. When you stop watching the channel a 6 minute countdown begins and if the channel is not tuned again within 6 minutes the transcoding stops. USE this!!
 
 CDVR_HOST= use the ip of your Channels dvr machine 
 
 RTP_PORT= this is the stream output port and can be changed if 4444 is in use. 
 
-OUTPUT_FPS= 25,30,50,60 should all work for choosing your desired frames per second. 
+OUTPUT_FPS= 25,30,50,60 should all work for choosing your desired frames per second. If you run in to pauses or hiccups in the stream reduce FPS. 
+
+WEB_PAGE_PORT=9799 Change to desired port or if 9799 is in use. 
 
 Notes:
 •  --network host: Ensures the container can communicate with Channels DVR on 127.0.0.1:4444.
@@ -108,6 +124,13 @@ Limitations
 Future Improvements
 •  Support bridge mode.  I would love to figure out how to run this in bridge mode but the stream output breaks everytime I try.  Can you help?
 
+Latest Improvements
+v2 tag includes the following:
+- Added an End Current Stream option in the menu button.  Stream will still auto kill after channel is closed when using the enviornment variable but the kill button is there if you wabt to use it.
+- Significantly reduced CPU consumption with code tweaks.
+- Added logic to identify and use Intel QuickSync for hardware encoding if available. Currently un-tested and un-verified as working. 
+- Added WEB_PAGE_PORT= variable to be able to change port number for the web ui page. 
+
 License
 MIT
 	
@@ -115,5 +138,3 @@ Acknowledgments
 •  Built with VLC for stream processing.
 •  Powered by Flask for the web UI.
 •  Designed for Channels DVR.
-
-Donations appreciated but not necessary. Buy me a coffee if you like at: [coff.ee/rice9797](https://buymeacoffee.com/rice9797)
