@@ -5,6 +5,7 @@ import threading
 import time
 import requests
 import json
+import platform
 from flask import Flask, request, render_template_string, jsonify
 import re
 
@@ -108,7 +109,8 @@ def detect_qsv():
         print(f"*** Error detecting QSV: {e}")
         return False
 
-VIDEO_CODEC = "h264_vaapi" if detect_qsv() else "mp4v"
+# Set video codec: use mp4v for arm64, otherwise check for QSV
+VIDEO_CODEC = "mp4v" if platform.machine() == "arm64" else ("h264_vaapi" if detect_qsv() else "mp4v")
 print(f"*** Using video codec: {VIDEO_CODEC}")
 
 HTML_TEMPLATE = """
@@ -312,7 +314,7 @@ HTML_TEMPLATE = """
             display: none;
             position: fixed;
             top: 50%;
-            left: 50%;
+            left: 50establishment
             transform: translate(-50%, -50%);
             background: #333;
             padding: 1em 2em;
@@ -533,6 +535,7 @@ HTML_TEMPLATE = """
 
         streamForm.addEventListener('submit', e => {
             e.preventDefault();
+           ним
             fetch('/start', {
                 method: 'POST',
                 body: new FormData(streamForm)

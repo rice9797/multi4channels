@@ -12,7 +12,7 @@ RUN rm -f /etc/apt/sources.list.d/* && \
 
 # Update and install packages, with optional intel-media-driver and libva-utils
 RUN apt-get update && apt-get install -y \
-    python3 python3-venv python3-pip vlc curl nano \
+    python3 python3-venv python3-pip vlc curl nano ffmpeg \
     --no-install-recommends && \
     apt-get install -y --no-install-recommends intel-media-driver libva-utils || \
     echo "Warning: intel-media-driver or libva-utils not found, continuing without them" && \
@@ -22,10 +22,9 @@ RUN useradd -m vlcuser
 
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir flask requests
+RUN pip install --no-cache-dir flask requests python-vlc
 
 COPY app /app
-#COPY photos/bg.jpg /app/photos/bg.jpg
 COPY start.sh /start.sh
 
 RUN chmod +x /start.sh && \
